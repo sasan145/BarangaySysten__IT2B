@@ -1,14 +1,14 @@
-package barangay.ui;
+package com.scc.ui;
 
-import barangay.dao.BarangayDao.ActivityLogDao;
-import barangay.dao.BarangayDao.DocumentRequestDao;
-import barangay.dao.BarangayDao.DocumentTypeDao;
-import barangay.dao.BarangayDao.ResidentDao;
-import barangay.dao.BarangayDao.UserDao;
-import barangay.model.BarangayEntity.DocumentRequest;
-import barangay.model.BarangayEntity.DocumentType;
-import barangay.model.BarangayEntity.Resident;
-import barangay.model.BarangayEntity.User;
+import com.scc.dao.UserDao;
+import com.scc.dao.UserDao.ActivityLogDao;
+import com.scc.dao.UserDao.DocumentRequestDao;
+import com.scc.dao.UserDao.DocumentTypeDao;
+import com.scc.dao.UserDao.ResidentDao;
+import com.scc.model.User.DocumentRequest;
+import com.scc.model.User.DocumentType;
+import com.scc.model.User.Resident;
+import com.scc.model.User.UserRecord;
 
 import java.util.List;
 import java.util.Optional;
@@ -59,7 +59,6 @@ public final class BarangayMenu {
         }
     }
 
-    /** Prints records as aligned console tables using printf. */
     public static class Display {
 
         private static String cut(String s, int max) {
@@ -71,13 +70,13 @@ public final class BarangayMenu {
             System.out.println("-".repeat(width));
         }
 
-        public static void users(List<User> users) {
+        public static void users(List<UserRecord> users) {
             System.out.println("\n--- USERS ---");
             String fmt = "%-5s %-20s %-10s %-10s%n";
             line(48);
             System.out.printf(fmt, "ID", "USERNAME", "ROLE", "STATUS");
             line(48);
-            for (User u : users) {
+            for (UserRecord u : users) {
                 System.out.printf(fmt, u.id(), cut(u.username(), 20), u.role(), u.status());
             }
             line(48);
@@ -189,13 +188,12 @@ public final class BarangayMenu {
             String username = in.text("Username: ");
             String password = in.text("Password: ");
 
-            Optional<User> userOpt = userDao.login(username, password);
-            if (userOpt.isEmpty()) {
-                System.out.println("Invalid credentials.");
+            UserRecord user = userDao.login(username, password);
+            if (user == null) {
+                System.out.println("Invalid credentials or account non-active.");
                 return;
             }
 
-            User user = userOpt.get();
             if (!"ACTIVE".equals(user.status())) {
                 System.out.println("Your account is inactive or not yet approved.");
                 return;
@@ -215,13 +213,13 @@ public final class BarangayMenu {
 
     public static class AdminMenu {
         private final Input in;
-        private final User admin;
+        private final UserRecord admin;
 
         private final UserDao userDao = new UserDao();
         private final DocumentTypeDao typeDao = new DocumentTypeDao();
         private final ActivityLogDao logDao = new ActivityLogDao();
 
-        public AdminMenu(Input in, User admin) {
+        public AdminMenu(Input in, UserRecord admin) {
             this.in = in;
             this.admin = admin;
         }
@@ -329,13 +327,13 @@ public final class BarangayMenu {
         private static final List<String> STATUSES = List.of("PENDING", "PROCESSING", "APPROVED", "RELEASED");
 
         private final Input in;
-        private final User staff;
+        private final UserRecord staff;
 
         private final ResidentDao residentDao = new ResidentDao();
         private final DocumentTypeDao typeDao = new DocumentTypeDao();
         private final DocumentRequestDao requestDao = new DocumentRequestDao();
 
-        public StaffMenu(Input in, User staff) {
+        public StaffMenu(Input in, UserRecord staff) {
             this.in = in;
             this.staff = staff;
         }
@@ -437,13 +435,13 @@ public final class BarangayMenu {
 
     public static class ResidentMenu {
         private final Input in;
-        private final User user;
+        private final UserRecord user;
 
         private final ResidentDao residentDao = new ResidentDao();
         private final DocumentTypeDao typeDao = new DocumentTypeDao();
         private final DocumentRequestDao requestDao = new DocumentRequestDao();
 
-        public ResidentMenu(Input in, User user) {
+        public ResidentMenu(Input in, UserRecord user) {
             this.in = in;
             this.user = user;
         }
@@ -512,7 +510,6 @@ public final class BarangayMenu {
         }
     }
 
-    /** Starts the interactive console menu. */
     public static void run(Scanner scanner) {
         new MainMenu(new Input(scanner)).show();
     }

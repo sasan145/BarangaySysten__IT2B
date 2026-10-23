@@ -1,96 +1,149 @@
-package barangay.dao;
+package com.scc.dao;
 
-import barangay.model.BarangayEntity.DocumentRequest;
-import barangay.model.BarangayEntity.DocumentType;
-import barangay.model.BarangayEntity.Resident;
-import barangay.model.BarangayEntity.User;
+import com.scc.model.User.DocumentRequest;
+import com.scc.model.User.DocumentType;
+import com.scc.model.User.Resident;
+import com.scc.model.User.UserRecord;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Types;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-public final class BarangayDao {
-    private BarangayDao() {}
+public class UserDao {
 
-    public static class UserDao {
-
-        /** Returns false if the username is taken or the insert fails. */
-        public boolean insert(String username, String password, String role, String status) {
-            String sql = "INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, ?)";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, username);
-                ps.setString(2, password);
-                ps.setString(3, role);
-                ps.setString(4, status);
-                return ps.executeUpdate() == 1;
-            } catch (SQLException e) {
-                if (e.getMessage() != null && e.getMessage().contains("UNIQUE")) return false;
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
+    public UserDao() {
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            defaultAdminGenerator(conn);
+        } catch (SQLException e) {
+            System.err.println("Error default seeding admin: " + e.getMessage());
         }
+    }
 
-        public Optional<User> login(String username, String password) {
-            String sql = "SELECT id, username, role, status FROM users WHERE username = ? AND password = ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, username);
-                ps.setString(2, password);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) return Optional.of(map(rs));
+    public void defaultAdminGenerator(Connection conn) {
+        String checkSql = "SELECT COUNT(*) FROM users WHERE role = 'ADMIN'";
+        String insertSql = "INSERT INTO users(username, password, role, status) VALUES('admin','admin123','ADMIN','ACTIVE')";
+
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(checkSql)) {
+            if (rs.next() && rs.getInt(1) == 0) {
+                stmt.executeUpdate(insertSql);
+                System.out.println(" -> Default Admin created <-");
+            }
+        } catch (SQLException e) {
+            System.err.println("Error seeding default admin: " + e.getMessage());
+        }
+    }
+
+    public boolean registerUser(String username, String password, String role) {
+        String sql = "INSERT INTO users(username, password, role, status) VALUES(?, ?, ?, 'PENDING')";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, username);
+            pstmt.setString(2, password);
+            pstmt.setString(3, role.toUpperCase());
+            pstmt.executeUpdate();
+            System.out.println("SUCCESSFUL REGISTRATION, waiting for approval.");
+            return true;
+        } catch (SQLException e) {
+            System.err.println("FAILED: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public UserRecord login(String username, String password) {
+        String sql = "SELECT id, username, role, status FROM users WHERE username = ? AND password = ?";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, username);
+            pstmt.setString(2, password);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    String status = rs.getString("status");
+                    if ("PENDING".equalsIgnoreCase(status)) {
+                        System.out.println("-> Account is pending. Waiting for approval.");
+                        return null;
+                    }
+                    return map(rs);
+                } else {
+                    System.out.println(" > Invalid Username or Password");
                 }
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
             }
-            return Optional.empty();
+        } catch (SQLException e) {
+            System.err.println("Error During login: " + e.getMessage());
         }
+        return null;
+    }
 
-        public List<User> findAll() {
-            List<User> list = new ArrayList<>();
-            String sql = "SELECT id, username, role, status FROM users ORDER BY id";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql);
-                 ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) list.add(map(rs));
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-            return list;
+    public boolean insert(String username, String password, String role, String status) {
+        String sql = "INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, ?)";
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, username);
+            ps.setString(2, password);
+            ps.setString(3, role);
+            ps.setString(4, status);
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            if (e.getMessage() != null && e.getMessage().contains("UNIQUE")) return false;
+            System.out.println("Database error: " + e.getMessage());
+            return false;
         }
+    }
 
-        public boolean updateStatus(int id, String status) {
-            String sql = "UPDATE users SET status = ? WHERE id = ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, status);
-                ps.setInt(2, id);
-                return ps.executeUpdate() == 1;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
+    public List<UserRecord> findAll() {
+        return getAllUsers();
+    }
 
-        /** Creates admin / admin123 on first run so someone can log in. */
-        public void seedDefaultAdmin() {
-            String sql = "INSERT OR IGNORE INTO users (username, password, role, status) VALUES ('admin', 'admin123', 'ADMIN', 'ACTIVE')";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.executeUpdate();
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
+    public List<UserRecord> getAllUsers() {
+        List<UserRecord> list = new ArrayList<>();
+        String sql = "SELECT id, username, role, status FROM users ORDER BY id";
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) list.add(map(rs));
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
+        return list;
+    }
 
-        private User map(ResultSet rs) throws SQLException {
-            return new User(rs.getInt("id"), rs.getString("username"), rs.getString("role"), rs.getString("status"));
+    public List<UserRecord> getPendingUser() {
+        List<UserRecord> list = new ArrayList<>();
+        String sql = "SELECT id, username, role, status FROM users WHERE status = 'PENDING' ORDER BY id";
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) list.add(map(rs));
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
         }
+        return list;
+    }
+
+    public boolean approveUser(int id) {
+        return updateStatus(id, "ACTIVE");
+    }
+
+    public boolean updateStatus(int id, String status) {
+        String sql = "UPDATE users SET status = ? WHERE id = ?";
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, status);
+            ps.setInt(2, id);
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private UserRecord map(ResultSet rs) throws SQLException {
+        return new UserRecord(rs.getInt("id"), rs.getString("username"), rs.getString("role"), rs.getString("status"));
     }
 
     public static class ResidentDao {
@@ -235,7 +288,6 @@ public final class BarangayDao {
             }
         }
 
-        /** Adds a few common documents on first run. */
         public void seedDefaults() {
             String sql = "INSERT OR IGNORE INTO document_types (name, description, fee, status) VALUES (?, ?, ?, 'ACTIVE')";
             Object[][] defaults = {

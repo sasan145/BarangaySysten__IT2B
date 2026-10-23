@@ -1,4 +1,4 @@
-package barangay.dao;
+package com.scc.dao;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -11,7 +11,6 @@ public class DatabaseConnection {
     public static Connection getConnection() {
         try {
             Connection conn = DriverManager.getConnection(URL);
-            // SQLite ignores foreign keys unless this is enabled on EVERY connection.
             try (Statement st = conn.createStatement()) {
                 st.execute("PRAGMA foreign_keys = ON;");
             }
