@@ -20,7 +20,7 @@ public class AdminMenu {
 
         while (loggedIn) {
             System.out.println("============================");
-            System.out.println("=====  ADMIN DASHBOARD  ====");
+            System.out.println("====== ADMIN DASHBOARD =====");
             System.out.println("============================");
             System.out.println("1. View All User");
             System.out.println("2. View Pending User Approvals");
@@ -32,11 +32,14 @@ public class AdminMenu {
             System.out.print("Select: ");
 
             int select = scanner.nextInt();
-            scanner.nextLine();
+            scanner.nextLine(); // Consume newline
 
             switch (select) {
                 case 1 -> viewAllUser();
                 case 2 -> viewPendingUser();
+                case 3 -> approveUser();
+                case 4 -> addUser();
+                case 5 -> updateUserStatus();
                 case 7 -> loggedIn = false;
                 default -> System.out.println("-> [ERROR] Invalid Option.");
             }
@@ -84,4 +87,41 @@ public class AdminMenu {
         }
     }
 
+    private void approveUser() {
+        List<UserRecord> pendingUsers = userDao.getPendingUser();
+        displayUserTable(pendingUsers, "PENDING APPROVALS");
+
+        if (pendingUsers.isEmpty()) {
+            return;
+        }
+        System.out.print("Enter User ID to Approve (or 0 to cancel): ");
+        int userID = scanner.nextInt();
+        scanner.nextLine();
+        if (userID == 0) {
+            System.out.println("-> Operation Cancelled by the User");
+            return;
+        }
+        boolean exists = pendingUsers.stream().anyMatch(u -> u.id() == userID);
+        if (!exists) {
+            System.out.println("[ERROR] User ID not found.");
+            return;
+        }
+        userDao.approveUser(userID);
+        System.out.println("-> User approved successfully.");
+    }
+
+    private void updateUserStatus() {
+        viewAllUser();
+        System.out.print("Enter User ID to Update Status: ");
+        int userID = scanner.nextInt();
+        scanner.nextLine();
+        System.out.print("Enter New Status [ACTIVE/INACTIVE/PENDING]: ");
+        String status = scanner.nextLine().trim().toUpperCase();
+
+        if (userDao.updateStatus(userID, status)) {
+            System.out.println("-> Status updated successfully.");
+        } else {
+            System.out.println("-> Failed to update status.");
+        }
+    }
 }
