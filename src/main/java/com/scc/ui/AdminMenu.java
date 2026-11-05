@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Scanner;
 
 public class AdminMenu {
+    private static final List<String> VALID_ROLES = List.of("ADMIN", "STAFF", "RESIDENT");
+    private static final List<String> VALID_STATUSES = List.of("APPROVED", "PENDING");
+
     private final UserDao userDao;
     private final Scanner scanner;
 
@@ -29,20 +32,99 @@ public class AdminMenu {
             System.out.println("5. Update User role / Status");
             System.out.println("6. Delete User");
             System.out.println("7. Logout");
-            System.out.print("Select: ");
 
-            int select = scanner.nextInt();
-            scanner.nextLine(); // Consume newline
+            int select = readIntInput("Select: ");
 
             switch (select) {
                 case 1 -> viewAllUser();
                 case 2 -> viewPendingUser();
                 case 3 -> approveUser();
                 case 4 -> addUser();
-                case 5 -> updateUserStatus();
+                case 5 -> updateUserRoleAndStatus(admin);
                 case 7 -> loggedIn = false;
                 default -> System.out.println("-> [ERROR] Invalid Option.");
             }
+        }
+    }
+
+    // ---------- Input validation wrappers ----------
+
+    /** Keeps asking until the admin types a whole number. Never throws on letters/symbols. */
+    private int readIntInput(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String input = scanner.nextLine().trim();
+            try {
+                return Integer.parseInt(input);
+            } catch (NumberFormatException e) {
+                System.out.println("-> [ERROR] Invalid input. Please enter a number.");
+            }
+        }
+    }
+
+    /** Returns a valid role, or null if the admin enters 0 to cancel. */
+    private String readValidRole() {
+        while (true) {
+            System.out.print("Enter New Role " + VALID_ROLES + " (0 to cancel): ");
+            String input = scanner.nextLine().trim().toUpperCase();
+            if (input.equals("0")) return null;
+            if (VALID_ROLES.contains(input)) return input;
+            System.out.println("-> [ERROR] Invalid role. Valid roles: " + VALID_ROLES);
+        }
+    }
+
+    /** Returns a valid status, or null if the admin enters 0 to cancel. */
+    private String readValidStatus() {
+        while (true) {
+            System.out.print("Enter New Status " + VALID_STATUSES + " (0 to cancel): ");
+            String input = scanner.nextLine().trim().toUpperCase();
+            if (input.equals("0")) return null;
+            if (VALID_STATUSES.contains(input)) return input;
+            System.out.println("-> [ERROR] Invalid status. Valid statuses: " + VALID_STATUSES);
+        }
+    }
+
+    // ---------- Features ----------
+
+    private void updateUserRoleAndStatus(UserRecord currentAdmin) {
+        List<UserRecord> users = userDao.getAllUsers();
+        displayUserTable(users, "SELECT USER TO UPDATE");
+        if (users.isEmpty()) return;
+
+        int targetUserId = readIntInput("Enter User ID to update (0 to cancel): ");
+        if (targetUserId == 0) {
+            System.out.println("-> Update cancelled.");
+            return;
+        }
+
+        if (targetUserId == currentAdmin.id()) {
+            System.out.println("WARNING: Modifying the currently active admin account is restricted.");
+            return;
+        }
+
+        boolean exists = users.stream().anyMatch(u -> u.id() == targetUserId);
+        if (!exists) {
+            System.out.println("-> [ERROR] User ID not found.");
+            return;
+        }
+
+        String newRole = readValidRole();
+        if (newRole == null) {
+            System.out.println("-> Update cancelled.");
+            return;
+        }
+
+        String newStatus = readValidStatus();
+        if (newStatus == null) {
+            System.out.println("-> Update cancelled.");
+            return;
+        }
+
+        if (userDao.updateUserRoleAndStatus(targetUserId, newRole, newStatus)) {
+            System.out.println("-> User #" + targetUserId + " updated successfully: role = "
+                    + newRole + ", status = " + newStatus);
+        } else {
+            System.out.println("-> Failed to update user.");
         }
     }
 
@@ -76,11 +158,13 @@ public class AdminMenu {
         String username = scanner.nextLine().trim();
         System.out.print("Enter Password: ");
         String password = scanner.nextLine();
-        System.out.print("Enter Role [ADMIN/STAFF/RESIDENT]: ");
-        String role = scanner.nextLine().trim().toUpperCase();
+        String role = readValidRole();
+        if (role == null) {
+            System.out.println("-> Add user cancelled.");
+            return;
+        }
 
-        boolean success = userDao.insert(username, password, role, "ACTIVE");
-        if (success) {
+        if (userDao.insert(username, password, role, "APPROVED")) {
             System.out.println("-> User added successfully.");
         } else {
             System.out.println("-> Failed to add user.");
@@ -90,13 +174,9 @@ public class AdminMenu {
     private void approveUser() {
         List<UserRecord> pendingUsers = userDao.getPendingUser();
         displayUserTable(pendingUsers, "PENDING APPROVALS");
+        if (pendingUsers.isEmpty()) return;
 
-        if (pendingUsers.isEmpty()) {
-            return;
-        }
-        System.out.print("Enter User ID to Approve (or 0 to cancel): ");
-        int userID = scanner.nextInt();
-        scanner.nextLine();
+        int userID = readIntInput("Enter User ID to Approve (or 0 to cancel): ");
         if (userID == 0) {
             System.out.println("-> Operation Cancelled by the User");
             return;
@@ -108,20 +188,5 @@ public class AdminMenu {
         }
         userDao.approveUser(userID);
         System.out.println("-> User approved successfully.");
-    }
-
-    private void updateUserStatus() {
-        viewAllUser();
-        System.out.print("Enter User ID to Update Status: ");
-        int userID = scanner.nextInt();
-        scanner.nextLine();
-        System.out.print("Enter New Status [ACTIVE/INACTIVE/PENDING]: ");
-        String status = scanner.nextLine().trim().toUpperCase();
-
-        if (userDao.updateStatus(userID, status)) {
-            System.out.println("-> Status updated successfully.");
-        } else {
-            System.out.println("-> Failed to update status.");
-        }
     }
 }

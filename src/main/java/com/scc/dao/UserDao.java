@@ -22,7 +22,7 @@ public class UserDao {
 
     public void defaultAdminGenerator(Connection conn) {
         String checkSql = "SELECT COUNT(*) FROM users WHERE role = 'ADMIN'";
-        String insertSql = "INSERT INTO users(username, password, role, status) VALUES('admin','admin123','ADMIN','ACTIVE')";
+        String insertSql = "INSERT INTO users(username, password, role, status) VALUES('admin','admin123','ADMIN','APPROVED')";
 
         try (Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(checkSql)) {
@@ -30,6 +30,8 @@ public class UserDao {
                 stmt.executeUpdate(insertSql);
                 System.out.println(" -> Default Admin created <-");
             }
+            // Migrate old ACTIVE accounts to the APPROVED status used by the system
+            stmt.executeUpdate("UPDATE users SET status = 'APPROVED' WHERE status = 'ACTIVE'");
         } catch (SQLException e) {
             System.err.println("Error seeding default admin: " + e.getMessage());
         }
@@ -126,7 +128,7 @@ public class UserDao {
     }
 
     public boolean approveUser(int id) {
-        return updateStatus(id, "ACTIVE");
+        return updateStatus(id, "APPROVED");
     }
 
     public boolean updateStatus(int id, String status) {
@@ -135,6 +137,20 @@ public class UserDao {
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, status);
             ps.setInt(2, id);
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean updateUserRoleAndStatus(int userId, String newRole, String newStatus) {
+        String sql = "UPDATE users SET role = ?, status = ? WHERE id = ?";
+        try (Connection c = DatabaseConnection.getConnection();
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, newRole.toUpperCase());
+            ps.setString(2, newStatus.toUpperCase());
+            ps.setInt(3, userId);
             return ps.executeUpdate() == 1;
         } catch (SQLException e) {
             System.out.println("Database error: " + e.getMessage());
