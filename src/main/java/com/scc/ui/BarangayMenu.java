@@ -1,15 +1,15 @@
 package com.scc.ui;
 
-import com.scc.dao.UserDao;
-import com.scc.dao.UserDao.ActivityLogDao;
-import com.scc.dao.UserDao.DocumentRequestDao;
-import com.scc.dao.UserDao.DocumentTypeDao;
-import com.scc.dao.UserDao.ResidentDao;
+import com.scc.dao.DocumentRequestDao;
+import com.scc.dao.DocumentTypeDao;
+import com.scc.dao.ResidentDao;
 import com.scc.model.User.DocumentRequest;
 import com.scc.model.User.DocumentType;
 import com.scc.model.User.Resident;
 import com.scc.model.User.UserRecord;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
@@ -54,13 +54,20 @@ public final class BarangayMenu {
         }
 
         public String date(String prompt) {
-            System.out.print(prompt);
-            return scanner.nextLine().trim();
+            while (true) {
+                System.out.print(prompt);
+                String val = scanner.nextLine().trim();
+                try {
+                    if (!LocalDate.parse(val).isAfter(LocalDate.now())) return val;
+                    System.out.println("Date cannot be in the future.");
+                } catch (DateTimeParseException e) {
+                    System.out.println("Invalid date. Use YYYY-MM-DD.");
+                }
+            }
         }
     }
 
     public static class Display {
-
         private static String cut(String s, int max) {
             if (s == null) return "";
             return s.length() <= max ? s : s.substring(0, max - 3) + "...";
@@ -68,19 +75,6 @@ public final class BarangayMenu {
 
         private static void line(int width) {
             System.out.println("-".repeat(width));
-        }
-
-        public static void users(List<UserRecord> users) {
-            System.out.println("\n--- USERS ---");
-            String fmt = "%-5s %-20s %-10s %-10s%n";
-            line(48);
-            System.out.printf(fmt, "ID", "USERNAME", "ROLE", "STATUS");
-            line(48);
-            for (UserRecord u : users) {
-                System.out.printf(fmt, u.id(), cut(u.username(), 20), u.role(), u.status());
-            }
-            line(48);
-            System.out.println(users.size() + " record(s)");
         }
 
         public static void residents(List<Resident> residents) {
@@ -124,202 +118,9 @@ public final class BarangayMenu {
             System.out.println(requests.size() + " record(s)");
         }
 
-        public static void logs(List<String> logs) {
-            System.out.println("\n--- ACTIVITY LOGS ---");
-            for (String log : logs) {
-                System.out.println(log);
-            }
-        }
-
         public static void summary() {
             System.out.println("\n--- SUMMARY REPORT ---");
             System.out.println("System operational and running smoothly.");
-        }
-    }
-
-    public static class MainMenu {
-        private final Input in;
-        private final UserDao userDao = new UserDao();
-        private final ActivityLogDao logDao = new ActivityLogDao();
-
-        public MainMenu(Input in) {
-            this.in = in;
-        }
-
-        public void show() {
-            boolean running = true;
-            while (running) {
-                System.out.println("\n=== BARANGAY DOCUMENT REQUEST SYSTEM ===");
-                System.out.println("1. Login");
-                System.out.println("2. Register as resident");
-                System.out.println("0. Exit");
-
-                String choice = in.text("Choose: ");
-                if ("1".equals(choice)) {
-                    login();
-                } else if ("2".equals(choice)) {
-                    register();
-                } else if ("0".equals(choice)) {
-                    running = false;
-                } else {
-                    System.out.println("Invalid choice.");
-                }
-            }
-            System.out.println("Goodbye!");
-        }
-
-        private void register() {
-            String username = in.text("Choose a username: ");
-            String password = in.text("Choose a password: ");
-            if (username.isBlank() || password.isBlank()) {
-                System.out.println("Username and password are required.");
-                return;
-            }
-            boolean ok = userDao.insert(username, password, "RESIDENT", "PENDING");
-            if (ok) {
-                logDao.log("New resident registered: " + username + " (PENDING)");
-                System.out.println("Registered! Wait for the admin to approve your account.");
-            } else {
-                System.out.println("Username already taken.");
-            }
-        }
-
-        private void login() {
-            String username = in.text("Username: ");
-            String password = in.text("Password: ");
-
-            UserRecord user = userDao.login(username, password);
-            if (user == null) {
-                System.out.println("Invalid credentials or account non-active.");
-                return;
-            }
-
-            if (!"ACTIVE".equals(user.status())) {
-                System.out.println("Your account is inactive or not yet approved.");
-                return;
-            }
-
-            logDao.log(user.role() + " logged in: " + user.username());
-
-            if ("ADMIN".equals(user.role())) {
-                new AdminMenu(in, user).show();
-            } else if ("STAFF".equals(user.role())) {
-                new StaffMenu(in, user).show();
-            } else {
-                new ResidentMenu(in, user).show();
-            }
-        }
-    }
-
-    public static class AdminMenu {
-        private final Input in;
-        private final UserRecord admin;
-
-        private final UserDao userDao = new UserDao();
-        private final DocumentTypeDao typeDao = new DocumentTypeDao();
-        private final ActivityLogDao logDao = new ActivityLogDao();
-
-        public AdminMenu(Input in, UserRecord admin) {
-            this.in = in;
-            this.admin = admin;
-        }
-
-        public void show() {
-            System.out.println("\nWelcome, " + admin.username() + "! (Administrator)");
-            boolean running = true;
-
-            while (running) {
-                System.out.println("\n--- ADMINISTRATOR MENU ---");
-                System.out.println("1. View all users");
-                System.out.println("2. Approve user");
-                System.out.println("3. Deactivate user");
-                System.out.println("4. View document types");
-                System.out.println("5. Add document type");
-                System.out.println("6. Update document type");
-                System.out.println("7. Set document type active/inactive");
-                System.out.println("8. Summary report");
-                System.out.println("9. Activity logs");
-                System.out.println("10. Create staff account");
-                System.out.println("0. Logout");
-
-                switch (in.text("Choose: ")) {
-                    case "1" -> Display.users(userDao.findAll());
-                    case "2" -> setUserStatus("ACTIVE");
-                    case "3" -> setUserStatus("INACTIVE");
-                    case "4" -> Display.documentTypes(typeDao.findAll());
-                    case "5" -> addType();
-                    case "6" -> updateType();
-                    case "7" -> setTypeStatus();
-                    case "8" -> Display.summary();
-                    case "9" -> Display.logs(logDao.findRecent(50));
-                    case "10" -> createStaff();
-                    case "0" -> running = false;
-                    default -> System.out.println("Invalid choice.");
-                }
-            }
-            System.out.println("Administrator logged out.");
-        }
-
-        private void createStaff() {
-            String username = in.text("Staff username: ");
-            String password = in.text("Staff password: ");
-            if (username.isBlank() || password.isBlank()) {
-                System.out.println("Username and password are required.");
-                return;
-            }
-            boolean ok = userDao.insert(username, password, "STAFF", "ACTIVE");
-            if (ok) logDao.log(admin.username() + " created staff account: " + username);
-            System.out.println(ok ? "Staff account created." : "Username already taken.");
-        }
-
-        private void setUserStatus(String status) {
-            Display.users(userDao.findAll());
-            int id = in.integer("User ID: ");
-            if (id == admin.id() && status.equals("INACTIVE")) {
-                System.out.println("You cannot deactivate yourself.");
-                return;
-            }
-            boolean updated = userDao.updateStatus(id, status);
-            if (updated) logDao.log(admin.username() + " set user #" + id + " to " + status);
-            System.out.println(updated ? "User is now " + status + "." : "User not found.");
-        }
-
-        private void addType() {
-            String name = in.text("Document name: ");
-            String description = in.text("Description: ");
-            double fee = in.decimal("Processing fee: ");
-            if (name.isBlank()) {
-                System.out.println("Document name is required.");
-                return;
-            }
-            boolean added = typeDao.insert(name, description, fee);
-            if (added) logDao.log(admin.username() + " added document type: " + name);
-            System.out.println(added ? "Document type added." : "Failed to add document type (name may already exist).");
-        }
-
-        private void updateType() {
-            Display.documentTypes(typeDao.findAll());
-            int id = in.integer("Document type ID: ");
-            String name = in.text("New name: ");
-            String description = in.text("New description: ");
-            double fee = in.decimal("New fee: ");
-            boolean updated = typeDao.update(id, name, description, fee);
-            if (updated) logDao.log(admin.username() + " updated document type #" + id);
-            System.out.println(updated ? "Document type updated." : "Document type not found.");
-        }
-
-        private void setTypeStatus() {
-            Display.documentTypes(typeDao.findAll());
-            int id = in.integer("Document type ID: ");
-            String choice = in.text("1 = ACTIVE, 2 = INACTIVE: ");
-            String status = choice.equals("1") ? "ACTIVE" : choice.equals("2") ? "INACTIVE" : null;
-            if (status == null) {
-                System.out.println("Invalid choice.");
-                return;
-            }
-            boolean updated = typeDao.setStatus(id, status);
-            if (updated) logDao.log(admin.username() + " set document type #" + id + " to " + status);
-            System.out.println(updated ? "Status set to " + status + "." : "Document type not found.");
         }
     }
 
@@ -377,6 +178,10 @@ public final class BarangayMenu {
             String birth = in.date("Birth date (YYYY-MM-DD): ");
             String address = in.text("Address: ");
             String contact = in.text("Contact number: ");
+            if (name.isBlank()) {
+                System.out.println("Name is required.");
+                return;
+            }
             boolean registered = residentDao.insert(null, name, birth, address, contact);
             System.out.println(registered ? "Resident registered." : "Failed to register resident.");
         }
@@ -388,6 +193,10 @@ public final class BarangayMenu {
             String birth = in.date("New birth date (YYYY-MM-DD): ");
             String address = in.text("New address: ");
             String contact = in.text("New contact number: ");
+            if (name.isBlank()) {
+                System.out.println("Name is required.");
+                return;
+            }
             boolean updated = residentDao.update(id, name, birth, address, contact);
             System.out.println(updated ? "Resident updated." : "Resident not found.");
         }
@@ -409,7 +218,7 @@ public final class BarangayMenu {
             Display.documentTypes(typeDao.findActive());
             int typeId = in.integer("Document type ID: ");
             boolean recorded = requestDao.insert(residentId, typeId);
-            System.out.println(recorded ? "Request recorded (PENDING)." : "Failed to record request.");
+            System.out.println(recorded ? "Request recorded (PENDING)." : "Failed to record request (check the document type ID).");
         }
 
         private void updateStatus() {
@@ -428,8 +237,8 @@ public final class BarangayMenu {
         private void cancelRequest() {
             Display.requests(requestDao.findAll());
             int id = in.integer("Request ID to cancel: ");
-            boolean canceled = requestDao.updateStatus(id, "CANCELED");
-            System.out.println(canceled ? "Request canceled." : "Request not found.");
+            boolean canceled = requestDao.cancel(id);
+            System.out.println(canceled ? "Request canceled." : "Request not found or can no longer be canceled.");
         }
     }
 
@@ -482,6 +291,10 @@ public final class BarangayMenu {
             String birth = in.date("Birth date (YYYY-MM-DD): ");
             String address = in.text("Address: ");
             String contact = in.text("Contact number: ");
+            if (name.isBlank()) {
+                System.out.println("Name is required.");
+                return;
+            }
 
             boolean created = residentDao.insert(user.id(), name, birth, address, contact);
             System.out.println(created ? "Profile created successfully." : "Failed to create profile.");
@@ -497,7 +310,7 @@ public final class BarangayMenu {
             Display.documentTypes(typeDao.findActive());
             int typeId = in.integer("Document type ID: ");
             boolean submitted = requestDao.insert(found.get().id(), typeId);
-            System.out.println(submitted ? "Request submitted (PENDING)." : "Failed to submit request.");
+            System.out.println(submitted ? "Request submitted (PENDING)." : "Failed to submit request (check the document type ID).");
         }
 
         private void trackRequests() {
@@ -508,9 +321,5 @@ public final class BarangayMenu {
             }
             Display.requests(requestDao.findByResident(found.get().id()));
         }
-    }
-
-    public static void run(Scanner scanner) {
-        new MainMenu(new Input(scanner)).show();
     }
 }

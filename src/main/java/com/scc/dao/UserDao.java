@@ -1,430 +1,138 @@
 package com.scc.dao;
 
-import com.scc.model.User.DocumentRequest;
-import com.scc.model.User.DocumentType;
-import com.scc.model.User.Resident;
 import com.scc.model.User.UserRecord;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class UserDao {
 
     public UserDao() {
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            defaultAdminGenerator(conn);
-        } catch (SQLException e) {
-            System.err.println("Error default seeding admin: " + e.getMessage());
-        }
+        seedDefaultAdmin();
     }
 
-    public void defaultAdminGenerator(Connection conn) {
-        String checkSql = "SELECT COUNT(*) FROM users WHERE role = 'ADMIN'";
-        String insertSql = "INSERT INTO users(username, password, role, status) VALUES('admin','admin123','ADMIN','APPROVED')";
-
-        try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(checkSql)) {
+    /** Creates admin / admin123 if the users table is empty, so you can log in the first time. */
+    private void seedDefaultAdmin() {
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM users")) {
             if (rs.next() && rs.getInt(1) == 0) {
-                stmt.executeUpdate(insertSql);
-                System.out.println(" -> Default Admin created <-");
-            }
-            // Migrate old ACTIVE accounts to the APPROVED status used by the system
-            stmt.executeUpdate("UPDATE users SET status = 'APPROVED' WHERE status = 'ACTIVE'");
-        } catch (SQLException e) {
-            System.err.println("Error seeding default admin: " + e.getMessage());
-        }
-    }
-
-    public boolean registerUser(String username, String password, String role) {
-        String sql = "INSERT INTO users(username, password, role, status) VALUES(?, ?, ?, 'PENDING')";
-
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
-            pstmt.setString(1, username);
-            pstmt.setString(2, password);
-            pstmt.setString(3, role.toUpperCase());
-            pstmt.executeUpdate();
-            System.out.println("SUCCESSFUL REGISTRATION, waiting for approval.");
-            return true;
-        } catch (SQLException e) {
-            System.err.println("FAILED: " + e.getMessage());
-            return false;
-        }
-    }
-
-    public UserRecord login(String username, String password) {
-        String sql = "SELECT id, username, role, status FROM users WHERE username = ? AND password = ?";
-
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, username);
-            pstmt.setString(2, password);
-
-            try (ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) {
-                    String status = rs.getString("status");
-                    if ("PENDING".equalsIgnoreCase(status)) {
-                        System.out.println("-> Account is pending. Waiting for approval.");
-                        return null;
-                    }
-                    return map(rs);
-                } else {
-                    System.out.println(" > Invalid Username or Password");
-                }
+                insert("admin", "admin123", "ADMIN", "APPROVED");
             }
         } catch (SQLException e) {
-            System.err.println("Error During login: " + e.getMessage());
+            System.out.println("-> [ERROR] " + e.getMessage());
         }
-        return null;
     }
 
     public boolean insert(String username, String password, String role, String status) {
         String sql = "INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, ?)";
-        try (Connection c = DatabaseConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, username);
             ps.setString(2, password);
             ps.setString(3, role);
             ps.setString(4, status);
-            return ps.executeUpdate() == 1;
+            return ps.executeUpdate() > 0;
         } catch (SQLException e) {
-            if (e.getMessage() != null && e.getMessage().contains("UNIQUE")) return false;
-            System.out.println("Database error: " + e.getMessage());
+            System.out.println("-> [ERROR] " + e.getMessage());
             return false;
         }
     }
 
-    public List<UserRecord> findAll() {
-        return getAllUsers();
+    public boolean registerUser(String username, String password, String role) {
+        if (insert(username, password, role, "PENDING")) {
+            System.out.println("-> Registration successful. Wait for admin approval.");
+            return true;
+        }
+        System.out.println("-> Registration failed (username may already exist).");
+        return false;
+    }
+
+    public UserRecord login(String username, String password) {
+        String sql = "SELECT id, username, role, status FROM users WHERE username = ? AND password = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            ps.setString(2, password);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    UserRecord u = map(rs);
+                    if (!"APPROVED".equals(u.status())) {
+                        System.out.println("-> Account is not approved yet.");
+                        return null;
+                    }
+                    return u;
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+        }
+        System.out.println("-> Invalid username or password.");
+        return null;
     }
 
     public List<UserRecord> getAllUsers() {
-        List<UserRecord> list = new ArrayList<>();
-        String sql = "SELECT id, username, role, status FROM users ORDER BY id";
-        try (Connection c = DatabaseConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) list.add(map(rs));
-        } catch (SQLException e) {
-            System.out.println("Database error: " + e.getMessage());
-        }
-        return list;
+        return list("SELECT id, username, role, status FROM users ORDER BY id");
     }
 
     public List<UserRecord> getPendingUser() {
-        List<UserRecord> list = new ArrayList<>();
-        String sql = "SELECT id, username, role, status FROM users WHERE status = 'PENDING' ORDER BY id";
-        try (Connection c = DatabaseConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) list.add(map(rs));
-        } catch (SQLException e) {
-            System.out.println("Database error: " + e.getMessage());
-        }
-        return list;
+        return list("SELECT id, username, role, status FROM users WHERE status = 'PENDING' ORDER BY id");
     }
 
-    public boolean approveUser(int id) {
-        return updateStatus(id, "APPROVED");
+    public boolean approveUser(int userId) {
+        return update("UPDATE users SET status = 'APPROVED' WHERE id = ?", userId);
     }
 
-    public boolean updateStatus(int id, String status) {
-        String sql = "UPDATE users SET status = ? WHERE id = ?";
-        try (Connection c = DatabaseConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, status);
-            ps.setInt(2, id);
-            return ps.executeUpdate() == 1;
-        } catch (SQLException e) {
-            System.out.println("Database error: " + e.getMessage());
-            return false;
-        }
-    }
-
-    public boolean updateUserRoleAndStatus(int userId, String newRole, String newStatus) {
+    public boolean updateUserRoleAndStatus(int userId, String role, String status) {
         String sql = "UPDATE users SET role = ?, status = ? WHERE id = ?";
-        try (Connection c = DatabaseConnection.getConnection();
-             PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, newRole.toUpperCase());
-            ps.setString(2, newStatus.toUpperCase());
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, role);
+            ps.setString(2, status);
             ps.setInt(3, userId);
-            return ps.executeUpdate() == 1;
+            return ps.executeUpdate() > 0;
         } catch (SQLException e) {
-            System.out.println("Database error: " + e.getMessage());
+            System.out.println("-> [ERROR] " + e.getMessage());
             return false;
         }
+    }
+
+    public boolean deleteUser(int userId) {
+        return update("DELETE FROM users WHERE id = ?", userId);
+    }
+
+    // ---------- helpers ----------
+
+    private boolean update(String sql, int id) {
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+            return false;
+        }
+    }
+
+    private List<UserRecord> list(String sql) {
+        List<UserRecord> users = new ArrayList<>();
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) users.add(map(rs));
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+        }
+        return users;
     }
 
     private UserRecord map(ResultSet rs) throws SQLException {
-        return new UserRecord(rs.getInt("id"), rs.getString("username"), rs.getString("role"), rs.getString("status"));
-    }
-
-    public static class ResidentDao {
-        private static final String COLUMNS = "id, name, birth_date, address, contact";
-
-        public boolean insert(Integer userId, String name, String birthDate, String address, String contact) {
-            String sql = "INSERT INTO residents (user_id, name, birth_date, address, contact) VALUES (?, ?, ?, ?, ?)";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                if (userId != null) ps.setInt(1, userId);
-                else ps.setNull(1, Types.INTEGER);
-                ps.setString(2, name);
-                ps.setString(3, birthDate);
-                ps.setString(4, address);
-                ps.setString(5, contact);
-                return ps.executeUpdate() > 0;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        public List<Resident> search(String query) {
-            List<Resident> list = new ArrayList<>();
-            String sql = "SELECT " + COLUMNS + " FROM residents WHERE name LIKE ? ORDER BY id";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, "%" + query + "%");
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) list.add(map(rs));
-                }
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-            return list;
-        }
-
-        public Optional<Resident> findById(int id) {
-            return findOne("SELECT " + COLUMNS + " FROM residents WHERE id = ?", id);
-        }
-
-        public Optional<Resident> findByUserId(int userId) {
-            return findOne("SELECT " + COLUMNS + " FROM residents WHERE user_id = ?", userId);
-        }
-
-        public boolean update(int id, String name, String birthDate, String address, String contact) {
-            String sql = "UPDATE residents SET name = ?, birth_date = ?, address = ?, contact = ? WHERE id = ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, name);
-                ps.setString(2, birthDate);
-                ps.setString(3, address);
-                ps.setString(4, contact);
-                ps.setInt(5, id);
-                return ps.executeUpdate() > 0;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        public boolean delete(int id) {
-            String sql = "DELETE FROM residents WHERE id = ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setInt(1, id);
-                return ps.executeUpdate() > 0;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        private Optional<Resident> findOne(String sql, int param) {
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setInt(1, param);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) return Optional.of(map(rs));
-                }
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-            return Optional.empty();
-        }
-
-        private Resident map(ResultSet rs) throws SQLException {
-            return new Resident(rs.getInt("id"), rs.getString("name"), rs.getString("birth_date"),
-                    rs.getString("address"), rs.getString("contact"));
-        }
-    }
-
-    public static class DocumentTypeDao {
-
-        public List<DocumentType> findAll() {
-            return query("SELECT id, name, description, fee, status FROM document_types ORDER BY id");
-        }
-
-        public List<DocumentType> findActive() {
-            return query("SELECT id, name, description, fee, status FROM document_types WHERE status = 'ACTIVE' ORDER BY id");
-        }
-
-        public boolean insert(String name, String description, double fee) {
-            String sql = "INSERT INTO document_types (name, description, fee, status) VALUES (?, ?, ?, 'ACTIVE')";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, name);
-                ps.setString(2, description);
-                ps.setDouble(3, fee);
-                return ps.executeUpdate() == 1;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        public boolean update(int id, String name, String description, double fee) {
-            String sql = "UPDATE document_types SET name = ?, description = ?, fee = ? WHERE id = ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, name);
-                ps.setString(2, description);
-                ps.setDouble(3, fee);
-                ps.setInt(4, id);
-                return ps.executeUpdate() == 1;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        public boolean setStatus(int id, String status) {
-            String sql = "UPDATE document_types SET status = ? WHERE id = ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, status);
-                ps.setInt(2, id);
-                return ps.executeUpdate() == 1;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        public void seedDefaults() {
-            String sql = "INSERT OR IGNORE INTO document_types (name, description, fee, status) VALUES (?, ?, ?, 'ACTIVE')";
-            Object[][] defaults = {
-                    {"Barangay Clearance", "General purpose clearance", 50.0},
-                    {"Certificate of Residency", "Proof of residency", 30.0},
-                    {"Certificate of Indigency", "For financial assistance", 0.0}
-            };
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                for (Object[] d : defaults) {
-                    ps.setString(1, (String) d[0]);
-                    ps.setString(2, (String) d[1]);
-                    ps.setDouble(3, (Double) d[2]);
-                    ps.executeUpdate();
-                }
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-        }
-
-        private List<DocumentType> query(String sql) {
-            List<DocumentType> list = new ArrayList<>();
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql);
-                 ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    list.add(new DocumentType(rs.getInt("id"), rs.getString("name"),
-                            rs.getString("description"), rs.getDouble("fee"), rs.getString("status")));
-                }
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-            return list;
-        }
-    }
-
-    public static class DocumentRequestDao {
-        private static final String SELECT =
-                "SELECT r.id, res.name, dt.name AS doc_name, dt.fee, r.status " +
-                        "FROM document_requests r " +
-                        "JOIN residents res ON r.resident_id = res.id " +
-                        "JOIN document_types dt ON r.document_type_id = dt.id ";
-
-        public boolean insert(int residentId, int documentTypeId) {
-            String sql = "INSERT INTO document_requests (resident_id, document_type_id, status) VALUES (?, ?, 'PENDING')";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setInt(1, residentId);
-                ps.setInt(2, documentTypeId);
-                return ps.executeUpdate() > 0;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        public List<DocumentRequest> findAll() {
-            return query(SELECT + "ORDER BY r.id", -1);
-        }
-
-        public List<DocumentRequest> findByResident(int residentId) {
-            return query(SELECT + "WHERE r.resident_id = ? ORDER BY r.id", residentId);
-        }
-
-        public boolean updateStatus(int id, String status) {
-            String sql = "UPDATE document_requests SET status = ? WHERE id = ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, status);
-                ps.setInt(2, id);
-                return ps.executeUpdate() > 0;
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-                return false;
-            }
-        }
-
-        private List<DocumentRequest> query(String sql, int param) {
-            List<DocumentRequest> list = new ArrayList<>();
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                if (param >= 0) ps.setInt(1, param);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        list.add(new DocumentRequest(rs.getInt("id"), rs.getString("name"),
-                                rs.getString("doc_name"), rs.getDouble("fee"), rs.getString("status")));
-                    }
-                }
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-            return list;
-        }
-    }
-
-    public static class ActivityLogDao {
-
-        public void log(String action) {
-            String sql = "INSERT INTO activity_logs (action) VALUES (?)";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, action);
-                ps.executeUpdate();
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-        }
-
-        public List<String> findRecent(int limit) {
-            List<String> list = new ArrayList<>();
-            String sql = "SELECT timestamp, action FROM activity_logs ORDER BY id DESC LIMIT ?";
-            try (Connection c = DatabaseConnection.getConnection();
-                 PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setInt(1, limit);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) list.add("[" + rs.getString("timestamp") + "] " + rs.getString("action"));
-                }
-            } catch (SQLException e) {
-                System.out.println("Database error: " + e.getMessage());
-            }
-            return list;
-        }
+        return new UserRecord(rs.getInt("id"), rs.getString("username"),
+                rs.getString("role"), rs.getString("status"));
     }
 }

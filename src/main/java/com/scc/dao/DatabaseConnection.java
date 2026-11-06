@@ -52,11 +52,6 @@ public class DatabaseConnection {
                     "status TEXT NOT NULL DEFAULT 'PENDING', " +
                     "FOREIGN KEY (resident_id) REFERENCES residents(id) ON DELETE CASCADE, " +
                     "FOREIGN KEY (document_type_id) REFERENCES document_types(id))");
-
-            stmt.execute("CREATE TABLE IF NOT EXISTS activity_logs (" +
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                    "action TEXT, " +
-                    "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)");
         } catch (SQLException e) {
             System.out.println("Database error: " + e.getMessage());
         }
