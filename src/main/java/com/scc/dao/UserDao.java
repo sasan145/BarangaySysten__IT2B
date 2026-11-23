@@ -16,13 +16,38 @@ public class UserDao {
         seedDefaultAdmin();
     }
 
-    /** Creates admin / admin123 if the users table is empty, so you can log in the first time. */
+    /**
+     * Makes sure at least one APPROVED admin exists so you can never be locked out.
+     * - If an approved admin already exists, nothing happens.
+     * - If an account named "admin" exists but is not an approved admin, it is repaired.
+     * - Otherwise admin / admin123 is created.
+     */
     private void seedDefaultAdmin() {
+        int approvedAdmins = 0;
+
+        // Step 1: read only, and close everything before any write happens.
         try (Connection conn = DatabaseConnection.getConnection();
              Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM users")) {
-            if (rs.next() && rs.getInt(1) == 0) {
+             ResultSet rs = st.executeQuery(
+                     "SELECT COUNT(*) FROM users WHERE role = 'ADMIN' AND status = 'APPROVED'")) {
+            if (rs.next()) approvedAdmins = rs.getInt(1);
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+            return;
+        }
+
+        if (approvedAdmins > 0) return;
+
+        // Step 2: repair an existing "admin" account, or create a new one.
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement st = conn.createStatement()) {
+            int repaired = st.executeUpdate(
+                    "UPDATE users SET role = 'ADMIN', status = 'APPROVED' WHERE username = 'admin'");
+            if (repaired > 0) {
+                System.out.println(" -> Existing 'admin' account was repaired (ADMIN, APPROVED).");
+            } else {
                 insert("admin", "admin123", "ADMIN", "APPROVED");
+                System.out.println(" -> Default admin created: admin / admin123");
             }
         } catch (SQLException e) {
             System.out.println("-> [ERROR] " + e.getMessage());

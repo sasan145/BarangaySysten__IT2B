@@ -12,6 +12,8 @@ import java.util.List;
 
 public class DocumentTypeDao {
 
+    private static final String SELECT = "SELECT id, name, description, fee, status FROM document_types ";
+
     public DocumentTypeDao() {
         seedDefaults();
     }
@@ -41,10 +43,86 @@ public class DocumentTypeDao {
         }
     }
 
+    // ---------- read ----------
+
     public List<DocumentType> findActive() {
+        return query(SELECT + "WHERE status = 'ACTIVE' ORDER BY id");
+    }
+
+    public List<DocumentType> findAll() {
+        return query(SELECT + "ORDER BY id");
+    }
+
+    // ---------- admin management ----------
+
+    public boolean insert(String name, String description, double fee) {
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            insert(conn, name, description, fee);
+            return true;
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean update(int id, String name, String description, double fee) {
+        String sql = "UPDATE document_types SET name = ?, description = ?, fee = ? WHERE id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, name);
+            ps.setString(2, description);
+            ps.setDouble(3, fee);
+            ps.setInt(4, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean setStatus(int id, String status) {
+        String sql = "UPDATE document_types SET status = ? WHERE id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status);
+            ps.setInt(2, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+            return false;
+        }
+    }
+
+    /** True if at least one document request references this type. */
+    public boolean isUsed(int id) {
+        String sql = "SELECT COUNT(*) FROM document_requests WHERE document_type_id = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt(1) > 0;
+            }
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+            return true; // be safe: treat as used so it is not deleted
+        }
+    }
+
+    public boolean delete(int id) {
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement("DELETE FROM document_types WHERE id = ?")) {
+            ps.setInt(1, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            System.out.println("-> [ERROR] " + e.getMessage());
+            return false;
+        }
+    }
+
+    // ---------- helpers ----------
+
+    private List<DocumentType> query(String sql) {
         List<DocumentType> types = new ArrayList<>();
-        String sql = "SELECT id, name, description, fee, status FROM document_types "
-                + "WHERE status = 'ACTIVE' ORDER BY id";
         try (Connection conn = DatabaseConnection.getConnection();
              Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery(sql)) {

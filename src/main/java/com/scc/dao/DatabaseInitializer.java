@@ -9,8 +9,10 @@ public class DatabaseInitializer {
     public static void initialize() {
         DatabaseConnection.initialize();
         createActivityLogsTable();
+        createSettingsTable();
         new UserDao();
         new DocumentTypeDao();
+        new SettingsDao();
         System.out.println(" -> Database tables verified.");
     }
 
@@ -33,6 +35,17 @@ public class DatabaseInitializer {
                     "description TEXT, " +
                     "timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, " +
                     "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL)");
+        } catch (SQLException e) {
+            System.out.println("Database error: " + e.getMessage());
+        }
+    }
+
+    private static void createSettingsTable() {
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE IF NOT EXISTS settings (" +
+                    "setting_key TEXT PRIMARY KEY, " +
+                    "setting_value TEXT NOT NULL)");
         } catch (SQLException e) {
             System.out.println("Database error: " + e.getMessage());
         }

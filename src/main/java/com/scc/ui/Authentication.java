@@ -1,6 +1,7 @@
 package com.scc.ui;
 
 import com.scc.dao.ActivityLogDao;
+import com.scc.dao.SettingsDao;
 import com.scc.dao.UserDao;
 import com.scc.model.User.UserRecord;
 
@@ -11,6 +12,7 @@ public class Authentication {
     private final UserDao userDao;
     private final Scanner sc;
     private final ActivityLogDao logDao = new ActivityLogDao();
+    private final SettingsDao settingsDao = new SettingsDao();
 
     public Authentication(UserDao userDao, Scanner scanner) {
         this.userDao = userDao;
@@ -22,6 +24,7 @@ public class Authentication {
         while (running) {
             System.out.println("=============================================");
             System.out.println("Barangay Document Request and Tracking System");
+            System.out.println(settingsDao.get(SettingsDao.BARANGAY_NAME, "Barangay"));
             System.out.println("=============================================");
             System.out.println("1. Login");
             System.out.println("2. Register");
@@ -41,6 +44,11 @@ public class Authentication {
     }
 
     private void handleRegister() {
+        if (!settingsDao.isRegistrationOpen()) {
+            System.out.println("-> Registration is currently closed. Please contact the administrator.");
+            return;
+        }
+
         System.out.print("Enter new Username: ");
         String newUser = sc.nextLine().trim();
         System.out.print("Enter Password: ");
